@@ -49,6 +49,9 @@ type Storage interface {
 	// Stats returns aggregated activity for the given period.
 	Stats(ctx context.Context, period string) (*entities.StatsResult, error)
 
+	// Streaks returns the current and longest consecutive-day streaks.
+	Streaks(ctx context.Context) (current, longest int, err error)
+
 	// Close releases the underlying database connection.
 	Close() error
 }

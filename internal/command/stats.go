@@ -3,18 +3,11 @@ package command
 import (
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/calyrexx/dlog/internal/render"
+	"github.com/calyrexx/dlog/internal/storage"
 	"github.com/spf13/cobra"
 )
-
-var graphRangeDays = map[string]int{
-	"day":   7,
-	"week":  7,
-	"month": 4 * 7,
-	"year":  52 * 7,
-}
 
 func (a *App) newStatsCmd() *cobra.Command {
 	var period string
@@ -33,26 +26,57 @@ func (a *App) newStatsCmd() *cobra.Command {
 				return fmt.Errorf("stats: %w", err)
 			}
 
-			render.Stats(result, period)
-
-			now := time.Now()
-
-			days := graphRangeDays[period]
-			if days == 0 {
-				days = graphRangeDays["week"]
+			cur, best, streakErr := a.db.Streaks(ctx)
+			if streakErr != nil {
+				return fmt.Errorf("streaks: %w", streakErr)
 			}
 
-			entries, err := a.db.GetByDateRange(ctx, now.AddDate(0, 0, -days), now)
+			prevFrom, prevTo := storage.PrevPeriodRange(period)
+
+			prevEntries, err := a.db.GetByDateRange(ctx, prevFrom, prevTo)
+			if err != nil {
+				return fmt.Errorf("prev period: %w", err)
+			}
+
+			var prevDuration int
+
+			for _, e := range prevEntries {
+				if e.DurationSec > 0 {
+					prevDuration += e.DurationSec
+				}
+			}
+
+			prev := &render.PrevPeriod{
+				Entries:  len(prevEntries),
+				Duration: prevDuration,
+			}
+
+			from, to := storage.PeriodRange(period)
+			render.Stats(result, period, cur, best, prev, from, to)
+
+			entries, err := a.db.GetByDateRange(ctx, from, to)
 			if err != nil {
 				return fmt.Errorf("graph: %w", err)
 			}
 
 			counts := make(map[string]int, len(entries))
+			hourly := make(map[int]map[int]int)
+
 			for _, e := range entries {
 				counts[e.CreatedAt.Format("2006-01-02")]++
+
+				wd := (int(e.CreatedAt.Weekday()) + 6) % 7 // Monday=0
+				h := e.CreatedAt.Hour()
+
+				if hourly[wd] == nil {
+					hourly[wd] = make(map[int]int)
+				}
+
+				hourly[wd][h]++
 			}
 
 			render.ContributionGraph(counts, period)
+			render.HourlyHeatmap(hourly)
 
 			return nil
 		},

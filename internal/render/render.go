@@ -170,8 +170,8 @@ var (
 
 	periodWeeks = map[string]int{
 		"day":   1,
-		"week":  1,
-		"month": 4,
+		"week":  2,
+		"month": 5,
 		"year":  52,
 	}
 
@@ -358,8 +358,20 @@ func BarChart(data map[string]int) {
 	}
 }
 
+// PrevPeriod holds aggregated data for the previous period comparison.
+type PrevPeriod struct {
+	Entries  int
+	Duration int // seconds
+}
+
 // Stats prints formatted statistics output.
-func Stats(result *entities.StatsResult, period string) {
+func Stats(
+	result *entities.StatsResult,
+	period string,
+	currentStreak, longestStreak int,
+	prev *PrevPeriod,
+	from, to time.Time,
+) {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(colorAccent).
@@ -374,26 +386,303 @@ func Stats(result *entities.StatsResult, period string) {
 		Foreground(lipgloss.Color("10")).
 		Bold(true)
 
+	labelStyle := lipgloss.NewStyle().Foreground(colorMuted).Width(12).Align(lipgloss.Right)
+
+	rangeStr := formatRange(from, to)
 	fmt.Println(titleStyle.Render(
-		fmt.Sprintf("  Activity — %s", period),
+		fmt.Sprintf("  Activity — %s  %s", period, muted.Render(rangeStr)),
 	))
 
-	fmt.Printf("  Entries:  %s\n", valueStyle.Render(
-		fmt.Sprintf("%d", result.TotalEntries),
-	))
+	fmt.Printf("  %s  %s%s\n",
+		labelStyle.Render("Entries"),
+		valueStyle.Render(fmt.Sprintf("%d", result.TotalEntries)),
+		deltaStr(result.TotalEntries, prev.Entries, ""),
+	)
 
 	if result.TotalDuration > 0 {
-		fmt.Printf("  Duration: %s\n",
-			valueStyle.Render(formatDuration(result.TotalDuration)))
+		fmt.Printf("  %s  %s%s\n",
+			labelStyle.Render("Duration"),
+			valueStyle.Render(formatDuration(result.TotalDuration)),
+			deltaStr(result.TotalDuration, prev.Duration, "duration"),
+		)
 	}
 
-	fmt.Printf("  Days:     %s\n", valueStyle.Render(
-		fmt.Sprintf("%d", len(result.ByDay)),
-	))
+	activeDays := len(result.ByDay)
+	fmt.Printf("  %s  %s\n",
+		labelStyle.Render("Active days"),
+		valueStyle.Render(fmt.Sprintf("%d", activeDays)),
+	)
+
+	if activeDays > 0 {
+		avg := float64(result.TotalEntries) / float64(activeDays)
+		fmt.Printf("  %s  %s\n",
+			labelStyle.Render("Avg/day"),
+			valueStyle.Render(fmt.Sprintf("%.1f", avg)),
+		)
+	}
+
+	if longestStreak > 0 {
+		streakText := fmt.Sprintf("%d days", currentStreak)
+		if longestStreak > currentStreak {
+			streakText += fmt.Sprintf(" (best: %d)", longestStreak)
+		}
+
+		fmt.Printf("  %s  %s\n",
+			labelStyle.Render("Streak"),
+			valueStyle.Render(streakText),
+		)
+	}
+
+	if best, count := mostActiveDay(result.ByDay); best != "" {
+		t, parseErr := time.Parse("2006-01-02", best)
+
+		label := best
+		if parseErr == nil {
+			label = t.Format("Mon, Jan 2")
+		}
+
+		fmt.Printf("  %s  %s %s\n",
+			labelStyle.Render("Peak day"),
+			valueStyle.Render(label),
+			fmt.Sprintf("(%d entries)", count),
+		)
+	}
 
 	if len(result.ByTag) > 0 {
+		fmt.Println()
 		fmt.Println(headerStyle.Render("  By tag"))
-		BarChart(result.ByTag)
+		tagBarChart(result.ByTag, result.TotalEntries)
+		fmt.Println()
+	}
+
+	if len(result.ByRepo) > 0 {
+		fmt.Println(headerStyle.Render("  By project"))
+		projectBranches(result.ByRepo, result.RepoBranches)
+	}
+}
+
+func formatRange(from, to time.Time) string {
+	if from.Year() == to.Year() && from.Month() == to.Month() && from.Day() == to.Day() {
+		return from.Format("Jan 2, 2006")
+	}
+
+	if from.Year() == to.Year() {
+		return fmt.Sprintf("%s – %s", from.Format("Jan 2"), to.Format("Jan 2"))
+	}
+
+	return fmt.Sprintf("%s – %s", from.Format("Jan 2, 2006"), to.Format("Jan 2, 2006"))
+}
+
+func mostActiveDay(byDay map[string]int) (string, int) {
+	best := ""
+	peak := 0
+
+	for day, count := range byDay {
+		if count > peak {
+			peak = count
+			best = day
+		}
+	}
+
+	return best, peak
+}
+
+func tagBarChart(data map[string]int, total int) {
+	if len(data) == 0 {
+		return
+	}
+
+	type kv struct {
+		key   string
+		value int
+	}
+
+	sorted := make([]kv, 0, len(data))
+	maxVal := 0
+	maxKeyLen := 0
+
+	for k, v := range data {
+		sorted = append(sorted, kv{k, v})
+		if v > maxVal {
+			maxVal = v
+		}
+
+		if len(k) > maxKeyLen {
+			maxKeyLen = len(k)
+		}
+	}
+
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].value > sorted[j].value
+	})
+
+	const maxBarWidth = 25
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(colorMuted).
+		Width(maxKeyLen).
+		Align(lipgloss.Right)
+
+	countStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("255")).
+		Width(4).
+		Align(lipgloss.Right)
+
+	for _, item := range sorted {
+		width := maxBarWidth
+		if maxVal > 0 {
+			width = item.value * maxBarWidth / maxVal
+		}
+
+		if width == 0 && item.value > 0 {
+			width = 1
+		}
+
+		barColor := colorAccent
+		if c, ok := tagColors[item.key]; ok {
+			barColor = c
+		}
+
+		barStyle := lipgloss.NewStyle().Foreground(barColor)
+		bar := barStyle.Render(strings.Repeat("█", width))
+		label := labelStyle.Render(item.key)
+
+		pct := 0
+		if total > 0 {
+			pct = item.value * 100 / total
+		}
+
+		fmt.Printf("  %s %s %s %s\n",
+			label, bar,
+			countStyle.Render(fmt.Sprintf("%d", item.value)),
+			fmt.Sprintf("%d%%", pct),
+		)
+	}
+}
+
+func projectBranches(repos map[string]int, branches map[string]map[string]int) {
+	type kv struct {
+		key   string
+		value int
+	}
+
+	sorted := make([]kv, 0, len(repos))
+
+	maxKeyLen := 0
+	total := 0
+
+	for k, v := range repos {
+		sorted = append(sorted, kv{k, v})
+		total += v
+
+		if len(k) > maxKeyLen {
+			maxKeyLen = len(k)
+		}
+	}
+
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].value > sorted[j].value
+	})
+
+	limit := len(sorted)
+	if limit > 5 {
+		limit = 5
+	}
+
+	maxKeyLen = branchLabelWidth(branches, maxKeyLen)
+
+	const maxBarWidth = 25
+
+	maxVal := sorted[0].value
+	barStyle := lipgloss.NewStyle().Foreground(colorAccent)
+	repoLabelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true).
+		Width(maxKeyLen).Align(lipgloss.Right)
+
+	countStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("255")).
+		Width(4).
+		Align(lipgloss.Right)
+
+	for i, repo := range sorted[:limit] {
+		if i > 0 {
+			fmt.Println()
+		}
+
+		width := repo.value * maxBarWidth / maxVal
+		if width == 0 && repo.value > 0 {
+			width = 1
+		}
+
+		pct := 0
+		if total > 0 {
+			pct = repo.value * 100 / total
+		}
+
+		bar := barStyle.Render(strings.Repeat("█", width))
+		fmt.Printf("  %s %s %s %s\n",
+			repoLabelStyle.Render(repo.key), bar,
+			countStyle.Render(fmt.Sprintf("%d", repo.value)),
+			fmt.Sprintf("%d%%", pct),
+		)
+
+		if br, ok := branches[repo.key]; ok && len(br) > 1 {
+			renderBranches(br, maxVal, maxBarWidth, maxKeyLen)
+		}
+	}
+}
+
+func branchLabelWidth(branches map[string]map[string]int, w int) int {
+	for _, br := range branches {
+		for k := range br {
+			if len(k)+2 > w {
+				w = len(k) + 2
+			}
+		}
+	}
+
+	return w
+}
+
+func renderBranches(br map[string]int, maxVal, maxBarWidth, labelWidth int) {
+	type kv struct {
+		key   string
+		value int
+	}
+
+	brSorted := make([]kv, 0, len(br))
+	for k, v := range br {
+		brSorted = append(brSorted, kv{k, v})
+	}
+
+	sort.Slice(brSorted, func(i, j int) bool {
+		return brSorted[i].value > brSorted[j].value
+	})
+
+	brLimit := len(brSorted)
+	if brLimit > 3 {
+		brLimit = 3
+	}
+
+	branchBarStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	branchLabelStyle := lipgloss.NewStyle().Foreground(colorMuted).
+		Width(labelWidth).Align(lipgloss.Right)
+
+	countStyle := lipgloss.NewStyle().
+		Foreground(colorMuted).
+		Width(4).
+		Align(lipgloss.Right)
+
+	for _, b := range brSorted[:brLimit] {
+		bw := b.value * maxBarWidth / maxVal
+		if bw == 0 && b.value > 0 {
+			bw = 1
+		}
+
+		bBar := branchBarStyle.Render(strings.Repeat("░", bw))
+		fmt.Printf("  %s %s %s\n",
+			branchLabelStyle.Render(b.key), bBar,
+			countStyle.Render(fmt.Sprintf("%d", b.value)),
+		)
 	}
 }
 
@@ -466,6 +755,107 @@ func hasLabelSpace(labels []string, w int) bool {
 	}
 
 	return labels[next] == ""
+}
+
+// HourlyHeatmap renders a 7x24 grid showing activity by weekday and hour.
+func HourlyHeatmap(data map[int]map[int]int) {
+	total := 0
+
+	for _, hours := range data {
+		for _, n := range hours {
+			total += n
+		}
+	}
+
+	if total == 0 {
+		return
+	}
+
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
+
+	fmt.Println()
+	fmt.Printf("  %s\n\n", title.Render("Activity by hour"))
+
+	heatmapHourLabels()
+
+	days := [7]string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+	for wd := range 7 {
+		fmt.Print(muted.Render(fmt.Sprintf("  %s ", days[wd])))
+
+		for h := range 24 {
+			n := 0
+			if data[wd] != nil {
+				n = data[wd][h]
+			}
+
+			fmt.Print(graphLevels[level(n)].Render(graphCell))
+			fmt.Print(" ")
+		}
+
+		fmt.Println()
+	}
+
+	fmt.Println()
+}
+
+func heatmapHourLabels() {
+	var line strings.Builder
+
+	line.WriteString("      ")
+
+	for h := range 24 {
+		if h%3 == 0 {
+			label := fmt.Sprintf("%02d", h)
+			line.WriteString(label)
+
+			target := 6 + (h+1)*graphColWidth
+			for line.Len() < target {
+				line.WriteByte(' ')
+			}
+		} else {
+			target := 6 + (h+1)*graphColWidth
+			for line.Len() < target {
+				line.WriteByte(' ')
+			}
+		}
+	}
+
+	fmt.Println(muted.Render(line.String()))
+}
+
+func deltaStr(current, previous int, mode string) string {
+	if previous == 0 {
+		return ""
+	}
+
+	diff := current - previous
+
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+
+	style := green
+	arrow := " +"
+
+	if diff < 0 {
+		style = red
+		arrow = " -"
+	} else if diff == 0 {
+		return muted.Render("  =")
+	}
+
+	absDiff := diff
+	if absDiff < 0 {
+		absDiff = -absDiff
+	}
+
+	var text string
+	if mode == "duration" {
+		text = fmt.Sprintf("%s%s", arrow, formatDuration(absDiff))
+	} else {
+		text = fmt.Sprintf("%s%d", arrow, absDiff)
+	}
+
+	return "  " + style.Render(text)
 }
 
 // level maps an entry count to a palette index.

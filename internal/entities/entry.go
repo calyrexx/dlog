@@ -29,4 +29,6 @@ type StatsResult struct {
 	TotalDuration int // seconds
 	ByTag         map[string]int
 	ByDay         map[string]int // "2006-01-02" -> count
+	ByRepo        map[string]int
+	RepoBranches  map[string]map[string]int // repo -> branch -> count
 }

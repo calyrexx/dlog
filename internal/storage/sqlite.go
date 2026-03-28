@@ -384,7 +384,7 @@ func (s *SQLiteStorage) ActiveSession(ctx context.Context) (*entities.Entry, err
 }
 
 func (s *SQLiteStorage) Stats(ctx context.Context, period string) (*entities.StatsResult, error) {
-	from, to := periodRange(period)
+	from, to := PeriodRange(period)
 
 	query, args, err := s.builder.
 		Select(entryCols...).
@@ -407,43 +407,143 @@ func (s *SQLiteStorage) Stats(ctx context.Context, period string) (*entities.Sta
 		TotalEntries: len(entries),
 		ByTag:        make(map[string]int),
 		ByDay:        make(map[string]int),
+		ByRepo:       make(map[string]int),
+		RepoBranches: make(map[string]map[string]int),
 	}
 
 	for _, e := range entries {
 		result.TotalDuration += e.DurationSec
 		result.ByTag[e.Tag]++
 		result.ByDay[e.CreatedAt.Format("2006-01-02")]++
+
+		if e.Repo != "" {
+			result.ByRepo[e.Repo]++
+
+			if e.Branch != "" {
+				if result.RepoBranches[e.Repo] == nil {
+					result.RepoBranches[e.Repo] = make(map[string]int)
+				}
+
+				result.RepoBranches[e.Repo][e.Branch]++
+			}
+		}
 	}
 
 	return result, nil
 }
 
-func periodRange(period string) (time.Time, time.Time) {
+// PeriodRange returns the [from, to] time boundaries for a named period.
+func PeriodRange(period string) (time.Time, time.Time) {
 	now := time.Now()
 	to := now
-
-	var from time.Time
-
-	switch period {
-	case "day":
-		y, m, d := now.Date()
-		from = time.Date(y, m, d, 0, 0, 0, 0, now.Location())
-	case "week":
-		offset := int(now.Weekday()+6) % 7
-		y, m, d := now.AddDate(0, 0, -offset).Date()
-		from = time.Date(y, m, d, 0, 0, 0, 0, now.Location())
-	case "month":
-		y, m, _ := now.Date()
-		from = time.Date(y, m, 1, 0, 0, 0, 0, now.Location())
-	case "year":
-		from = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
-	default:
-		offset := int(now.Weekday()+6) % 7
-		y, m, d := now.AddDate(0, 0, -offset).Date()
-		from = time.Date(y, m, d, 0, 0, 0, 0, now.Location())
-	}
+	from := periodStart(now, period)
 
 	return from, to
+}
+
+// PrevPeriodRange returns the [from, to] boundaries for the period immediately before the current one.
+func PrevPeriodRange(period string) (time.Time, time.Time) {
+	now := time.Now()
+	curFrom := periodStart(now, period)
+	to := curFrom.Add(-time.Second)
+	from := periodStart(curFrom.AddDate(0, 0, -1), period)
+
+	return from, to
+}
+
+func periodStart(ref time.Time, period string) time.Time {
+	switch period {
+	case "day":
+		y, m, d := ref.Date()
+
+		return time.Date(y, m, d, 0, 0, 0, 0, ref.Location())
+	case "month":
+		y, m, _ := ref.Date()
+
+		return time.Date(y, m, 1, 0, 0, 0, 0, ref.Location())
+	case "year":
+		return time.Date(ref.Year(), 1, 1, 0, 0, 0, 0, ref.Location())
+	default: // "week"
+		offset := int(ref.Weekday()+6) % 7
+		y, m, d := ref.AddDate(0, 0, -offset).Date()
+
+		return time.Date(y, m, d, 0, 0, 0, 0, ref.Location())
+	}
+}
+
+func (s *SQLiteStorage) Streaks(ctx context.Context) (current, longest int, err error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT DISTINCT date(created_at) AS d FROM entries WHERE duration_sec != -1 ORDER BY d DESC",
+	)
+	if err != nil {
+		return 0, 0, fmt.Errorf("query streaks: %w", err)
+	}
+	defer rows.Close()
+
+	var dates []string
+
+	for rows.Next() {
+		var ds string
+		if err := rows.Scan(&ds); err != nil {
+			return 0, 0, fmt.Errorf("scan date: %w", err)
+		}
+
+		dates = append(dates, ds)
+	}
+
+	if err := rows.Err(); err != nil {
+		return 0, 0, fmt.Errorf("iterate rows: %w", err)
+	}
+
+	if len(dates) == 0 {
+		return 0, 0, nil
+	}
+
+	today := time.Now().Format(time.DateOnly)
+	yesterday := time.Now().AddDate(0, 0, -1).Format(time.DateOnly)
+
+	isCurrent := dates[0] == today || dates[0] == yesterday
+	streak := 1
+
+	for i := 1; i < len(dates); i++ {
+		if daysBetween(dates[i], dates[i-1]) == 1 {
+			streak++
+
+			continue
+		}
+
+		if isCurrent {
+			current = streak
+			isCurrent = false
+		}
+
+		if streak > longest {
+			longest = streak
+		}
+
+		streak = 1
+	}
+
+	if isCurrent {
+		current = streak
+	}
+
+	if streak > longest {
+		longest = streak
+	}
+
+	return current, longest, nil
+}
+
+func daysBetween(earlier, later string) int {
+	a, errA := time.Parse(time.DateOnly, earlier)
+	b, errB := time.Parse(time.DateOnly, later)
+
+	if errA != nil || errB != nil {
+		return -1
+	}
+
+	return int(b.Sub(a).Hours() / 24)
 }
 
 func (s *SQLiteStorage) Close() error {
