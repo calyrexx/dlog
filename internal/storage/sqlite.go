@@ -231,25 +231,24 @@ func (s *SQLiteStorage) GetLast(ctx context.Context, n int) ([]entities.Entry, e
 	return s.queryEntries(ctx, query, args...)
 }
 
-func (s *SQLiteStorage) Search(ctx context.Context, q string) ([]entities.Entry, error) {
-	query, args, err := s.builder.
+func (s *SQLiteStorage) Search(ctx context.Context, q, tag, repo string) ([]entities.Entry, error) {
+	b := s.builder.
 		Select(entryCols...).
-		From("entries").
-		Where(sq.Like{"text": "%" + q + "%"}).
-		OrderBy("created_at DESC").
-		ToSql()
-	if err != nil {
-		return nil, fmt.Errorf("build query: %w", err)
+		From("entries")
+
+	if q != "" {
+		b = b.Where(sq.Like{"text": "%" + q + "%"})
 	}
 
-	return s.queryEntries(ctx, query, args...)
-}
+	if tag != "" {
+		b = b.Where(sq.Eq{"tag": tag})
+	}
 
-func (s *SQLiteStorage) SearchByTag(ctx context.Context, tag string) ([]entities.Entry, error) {
-	query, args, err := s.builder.
-		Select(entryCols...).
-		From("entries").
-		Where(sq.Eq{"tag": tag}).
+	if repo != "" {
+		b = b.Where(sq.Eq{"repo": repo})
+	}
+
+	query, args, err := b.
 		OrderBy("created_at DESC").
 		ToSql()
 	if err != nil {
@@ -488,7 +487,7 @@ func (s *SQLiteStorage) queryEntries(ctx context.Context, query string, args ...
 
 // toLocal re-interprets a UTC-parsed time as local time.
 // SQLite stores datetime('now','localtime') without timezone info,
-// so the Go driver parses it as UTC — we fix that here.
+// so the Go driver parses it as UTC.
 func toLocal(t time.Time) time.Time {
 	if t.Location() == time.UTC {
 		return time.Date(

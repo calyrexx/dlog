@@ -31,10 +31,7 @@ type Storage interface {
 	GetLast(ctx context.Context, n int) ([]entities.Entry, error)
 
 	// Search returns entries whose text matches the query.
-	Search(ctx context.Context, query string) ([]entities.Entry, error)
-
-	// SearchByTag returns all entries with a given tag.
-	SearchByTag(ctx context.Context, tag string) ([]entities.Entry, error)
+	Search(ctx context.Context, query, tag, repo string) ([]entities.Entry, error)
 
 	// GetByDateRange returns entries within [from, to] inclusive.
 	GetByDateRange(ctx context.Context, from, to time.Time) ([]entities.Entry, error)

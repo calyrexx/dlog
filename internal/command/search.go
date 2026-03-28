@@ -3,50 +3,37 @@ package command
 import (
 	"fmt"
 
-	"github.com/calyrexx/dlog/internal/entities"
 	"github.com/calyrexx/dlog/internal/render"
 	"github.com/spf13/cobra"
 )
 
 func (a *App) newSearchCmd() *cobra.Command {
-	var tag string
+	var (
+		tag  string
+		repo string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "search [query]",
 		Short: "Search entries by text and/or tag",
-		Long: "Search entries by text query, tag filter, or both.\n\n" +
+		Long: "Search entries by text query, project tag filter, or both.\n\n" +
 			"Examples:\n  dlog search auth\n  dlog search -t feat\n" +
 			"  dlog search migration -t fix",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			query := ""
+
+			var query string
 
 			if len(args) > 0 {
 				query = args[0]
 			}
 
-			if query == "" && tag == "" {
-				return fmt.Errorf("provide a query, a --tag filter, or both")
+			if query == "" && tag == "" && repo == "" {
+				return fmt.Errorf("provide a query, a --tag filter, a --project filter, or all")
 			}
 
-			var (
-				entries []entities.Entry
-				err     error
-			)
-
-			switch {
-			case query != "" && tag != "":
-				entries, err = a.db.Search(ctx, query)
-				if err == nil {
-					entries = filterByTag(entries, tag)
-				}
-			case tag != "":
-				entries, err = a.db.SearchByTag(ctx, tag)
-			default:
-				entries, err = a.db.Search(ctx, query)
-			}
-
+			entries, err := a.db.Search(ctx, query, tag, repo)
 			if err != nil {
 				return fmt.Errorf("search: %w", err)
 			}
@@ -58,18 +45,7 @@ func (a *App) newSearchCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&tag, "tag", "t", "", "filter by tag")
+	cmd.Flags().StringVarP(&repo, "repo", "r", "", "filter by git repository")
 
 	return cmd
-}
-
-func filterByTag(entries []entities.Entry, tag string) []entities.Entry {
-	filtered := make([]entities.Entry, 0, len(entries))
-
-	for _, e := range entries {
-		if e.Tag == tag {
-			filtered = append(filtered, e)
-		}
-	}
-
-	return filtered
 }

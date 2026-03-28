@@ -25,13 +25,15 @@ func (a *App) newAddCmd() *cobra.Command {
 			ctx := cmd.Context()
 			text := strings.Join(args, " ")
 
-			id, err := a.db.Add(ctx, entities.Entry{
-				Text:       text,
-				Tag:        tag,
-				Repo:       git.RepoName(ctx),
-				Branch:     git.Branch(ctx),
-				CommitHash: git.CommitHash(ctx),
-			})
+			id, err := a.db.Add(ctx,
+				entities.Entry{
+					Text:       text,
+					Tag:        tag,
+					Repo:       git.RepoName(ctx),
+					Branch:     git.Branch(ctx),
+					CommitHash: git.CommitHash(ctx),
+				},
+			)
 			if err != nil {
 				return fmt.Errorf("add entry: %w", err)
 			}

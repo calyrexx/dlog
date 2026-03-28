@@ -4,6 +4,8 @@ GIT_BRANCH := $(shell git branch --show-current)
 GIT_REMOTE := git@github.com:calyrexx/dlog.git
 BINARY     := dlog
 BUILD_DIR  := .
+VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS    := -ldflags "-X github.com/calyrexx/dlog/internal/command.Version=$(VERSION)"
 
 CHECK_EMOJI := ✅
 ERROR_EMOJI := ❌
@@ -12,12 +14,12 @@ ARROW_UP    := ⬆️
 
 build:
 	@echo "$(INFO_EMOJI) Building $(BINARY)..."
-	@go build -o $(BUILD_DIR)/$(BINARY) .
+	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) .
 	@echo "$(CHECK_EMOJI) Built $(BUILD_DIR)/$(BINARY)"
 
 install:
 	@echo "$(INFO_EMOJI) Installing $(BINARY) to GOPATH/bin..."
-	@go install .
+	@go install $(LDFLAGS) .
 	@echo "$(CHECK_EMOJI) Installed $(BINARY)"
 
 checks: test lint

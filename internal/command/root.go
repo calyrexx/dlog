@@ -22,20 +22,26 @@ var ValidTagList = func() string {
 	return strings.Join(tags, ", ")
 }()
 
+// Version is set at build time via ldflags.
+var Version = "dev"
+
 type App struct {
 	db storage.Storage
 }
 
 func NewApp(db storage.Storage) *App {
-	return &App{db: db}
+	return &App{
+		db: db,
+	}
 }
 
 // Execute builds the command tree and runs it.
 func (a *App) Execute(ctx context.Context) {
 	root := &cobra.Command{
-		Use:   "dlog",
-		Short: "Personal developer diary for the terminal",
-		Long:  "dlog — track what you did, when you did it, and why.",
+		Use:     "dlog",
+		Short:   "Personal developer diary for the terminal",
+		Long:    "dlog — track what you did, when you did it, and why.",
+		Version: Version,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			entries, err := a.db.GetToday(cmd.Context())
 			if err != nil {
