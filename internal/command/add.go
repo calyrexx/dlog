@@ -7,6 +7,7 @@ import (
 
 	"github.com/calyrexx/dlog/internal/entities"
 	"github.com/calyrexx/dlog/internal/git"
+	"github.com/calyrexx/dlog/internal/render"
 	"github.com/spf13/cobra"
 )
 
@@ -61,7 +62,11 @@ func (a *App) newAddCmd() *cobra.Command {
 				return fmt.Errorf("add entry db error: %w", err)
 			}
 
-			slog.Debug("add command", slog.Group("note", "id", id, "text", noteText, "tag", tag))
+			slog.Debug("add command", slog.Group("note",
+				"id", id, "text", noteText, "tag", tag,
+			))
+
+			render.EntryAdded(id, tag, noteText)
 
 			return nil
 		},
