@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"os"
 
 	"github.com/calyrexx/dlog/internal/storage"
@@ -12,13 +13,11 @@ type App struct {
 }
 
 func NewApp(db storage.Storage) *App {
-	return &App{
-		db: db,
-	}
+	return &App{db: db}
 }
 
 // Execute builds the command tree and runs it.
-func (a *App) Execute() {
+func (a *App) Execute(ctx context.Context) {
 	root := &cobra.Command{
 		Use:   "dlog",
 		Short: "Personal developer diary for the terminal",
@@ -36,6 +35,8 @@ func (a *App) Execute() {
 		a.newExportCmd(),
 		a.newStatsCmd(),
 	)
+
+	root.SetContext(ctx)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

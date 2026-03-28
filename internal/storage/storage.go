@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"time"
 
 	"github.com/calyrexx/dlog/internal/entities"
@@ -16,36 +17,35 @@ type StatsResult struct {
 
 type Storage interface {
 	// Add writes a new entry and returns its ID.
-	Add(entry entities.Entry) (int64, error)
+	Add(ctx context.Context, entry entities.Entry) (int64, error)
 
 	// GetToday returns all entries created today.
-	GetToday() ([]entities.Entry, error)
+	GetToday(ctx context.Context) ([]entities.Entry, error)
 
 	// GetYesterday returns all entries created yesterday.
-	GetYesterday() ([]entities.Entry, error)
+	GetYesterday(ctx context.Context) ([]entities.Entry, error)
 
 	// GetLast returns the n most recent entries.
-	GetLast(n int) ([]entities.Entry, error)
+	GetLast(ctx context.Context, n int) ([]entities.Entry, error)
 
 	// Search returns entries whose text matches the query.
-	Search(query string) ([]entities.Entry, error)
+	Search(ctx context.Context, query string) ([]entities.Entry, error)
 
 	// GetByDateRange returns entries within [from, to] inclusive.
-	GetByDateRange(from, to time.Time) ([]entities.Entry, error)
+	GetByDateRange(ctx context.Context, from, to time.Time) ([]entities.Entry, error)
 
 	// StartSession saves the beginning of a timed work session.
-	StartSession(tag, text string) error
+	StartSession(ctx context.Context, tag, text string) error
 
 	// StopSession finalises the active session, records duration and appends text.
-	// Returns the completed entry.
-	StopSession(text string) (*entities.Entry, error)
+	StopSession(ctx context.Context, text string) (*entities.Entry, error)
 
 	// ActiveSession returns the in-progress session, or nil if none.
-	ActiveSession() (*entities.Entry, error)
+	ActiveSession(ctx context.Context) (*entities.Entry, error)
 
 	// Stats returns aggregated activity for the given period.
 	// period: "day" | "week" | "month" | "year"
-	Stats(period string) (*StatsResult, error)
+	Stats(ctx context.Context, period string) (*StatsResult, error)
 
 	// Close releases the underlying database connection.
 	Close() error

@@ -21,32 +21,34 @@ func (a *App) newAddCmd() *cobra.Command {
 		Short: "Add a new diary entry",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			slog.Debug("add command", "args", args)
 
 			noteText = strings.Join(args, " ")
 
-			repo, err := git.RepoName()
+			repo, err := git.RepoName(ctx)
 			if err != nil {
 				slog.Error("add command", "error", err)
 
-				return fmt.Errorf("failed to get: %w", err)
+				return fmt.Errorf("failed to get repo: %w", err)
 			}
 
-			branch, err := git.Branch()
+			branch, err := git.Branch(ctx)
 			if err != nil {
 				slog.Error("add command", "error", err)
 
-				return fmt.Errorf("failed to get: %w", err)
+				return fmt.Errorf("failed to get branch: %w", err)
 			}
 
-			commitHash, err := git.CommitHash()
+			commitHash, err := git.CommitHash(ctx)
 			if err != nil {
 				slog.Error("add command", "error", err)
 
-				return fmt.Errorf("failed to get: %w", err)
+				return fmt.Errorf("failed to get commit hash: %w", err)
 			}
 
-			id, err := a.db.Add(entities.Entry{
+			id, err := a.db.Add(ctx, entities.Entry{
 				Text:       noteText,
 				Tag:        tag,
 				Repo:       repo,

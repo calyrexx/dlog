@@ -16,7 +16,7 @@ func (a *App) newTodayCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			slog.Debug("today command", "args", args)
 
-			notes, err := a.db.GetToday()
+			notes, err := a.db.GetToday(cmd.Context())
 			if err != nil {
 				slog.Error("today command", "error", err)
 

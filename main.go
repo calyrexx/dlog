@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/calyrexx/dlog/internal/command"
 	"github.com/calyrexx/dlog/internal/storage"
@@ -17,18 +21,29 @@ func main() {
 	))
 	slog.SetDefault(logger)
 
-	db, err := storage.New()
-	if err != nil {
-		slog.Error("failed to open storage", "err", err)
+	if err := run(); err != nil {
+		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
-	defer func(db *storage.SQLiteStorage) {
-		err := db.Close()
-		if err != nil {
+}
+
+func run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	db, err := storage.New()
+	if err != nil {
+		return fmt.Errorf("open storage: %w", err)
+	}
+
+	defer func() {
+		if err := db.Close(); err != nil {
 			slog.Error("failed to close storage", "err", err)
 		}
-	}(db)
+	}()
 
 	app := command.NewApp(db)
-	app.Execute()
+	app.Execute(ctx)
+
+	return nil
 }

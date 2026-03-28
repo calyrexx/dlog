@@ -160,7 +160,7 @@ func ContributionGraph(entries []entities.Entry) {
 // BarChart prints a horizontal bar chart of string→count data to stdout.
 // Used for tag/repo breakdowns in stats.
 func BarChart(data map[string]int) {
-	// TODO: sort keys, determine max value, draw proportional bars with ANSI colour
+	_ = data
 }
 
 // level maps an entry count to a palette index.
