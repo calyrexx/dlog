@@ -109,10 +109,13 @@ func Table(entries []entities.Entry) {
 	fmt.Println(t.Render())
 }
 
+var (
+	accent = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	muted  = lipgloss.NewStyle().Foreground(colorMuted)
+)
+
 // ActiveSessionStatus prints info about the currently running session.
 func ActiveSessionStatus(e *entities.Entry) {
-	accent := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-	muted := lipgloss.NewStyle().Foreground(colorMuted)
 	green := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
 
 	elapsed := int(time.Since(e.CreatedAt).Seconds())
@@ -137,21 +140,16 @@ func ActiveSessionStatus(e *entities.Entry) {
 
 // NoActiveSession prints a message when no session is running.
 func NoActiveSession() {
-	muted := lipgloss.NewStyle().Foreground(colorMuted)
 	fmt.Printf("  %s\n", muted.Render("no active session"))
 }
 
 // EntryDeleted prints a confirmation when an entry is deleted.
 func EntryDeleted(id int64) {
-	accent := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	fmt.Printf("  %s entry #%d deleted\n", accent.Render("✓"), id)
 }
 
 // EntryUpdated prints a confirmation when an entry is updated.
 func EntryUpdated(e *entities.Entry) {
-	accent := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-	muted := lipgloss.NewStyle().Foreground(colorMuted)
-
 	fmt.Printf("  %s entry #%d updated  %s  %s\n",
 		accent.Render("✓"),
 		e.ID,
@@ -172,15 +170,15 @@ var (
 
 	periodWeeks = map[string]int{
 		"day":   1,
-		"week":  8,
-		"month": 16,
+		"week":  1,
+		"month": 4,
 		"year":  52,
 	}
 
 	periodTitles = map[string]string{
 		"day":   "today",
-		"week":  "the last 2 months",
-		"month": "the last 4 months",
+		"week":  "the last week",
+		"month": "the last month",
 		"year":  "the last year",
 	}
 )
@@ -201,7 +199,6 @@ func ContributionGraph(counts map[string]int, period string) {
 		total += v
 	}
 
-	muted := lipgloss.NewStyle().Foreground(colorMuted)
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
 
 	label := periodTitles[period]
@@ -402,9 +399,6 @@ func Stats(result *entities.StatsResult, period string) {
 
 // SessionStarted prints a confirmation when a session starts.
 func SessionStarted(tag, text string) {
-	accent := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-	muted := lipgloss.NewStyle().Foreground(colorMuted)
-
 	fmt.Printf(
 		"  %s session started %s\n",
 		accent.Render("▶"),
@@ -421,9 +415,6 @@ func SessionStarted(tag, text string) {
 
 // SessionStopped prints a confirmation when a session stops.
 func SessionStopped(e *entities.Entry) {
-	accent := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-	muted := lipgloss.NewStyle().Foreground(colorMuted)
-
 	fmt.Printf(
 		"  %s session stopped — %s\n",
 		accent.Render("■"),
@@ -446,9 +437,6 @@ func tagStyled(tag string) string {
 
 // EntryAdded prints a confirmation when an entry is added.
 func EntryAdded(id int64, tag, text string) {
-	accent := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-	muted := lipgloss.NewStyle().Foreground(colorMuted)
-
 	fmt.Printf("  %s entry #%d added  %s  %s\n",
 		accent.Render("✓"),
 		id,

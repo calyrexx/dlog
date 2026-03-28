@@ -11,8 +11,8 @@ import (
 
 var graphRangeDays = map[string]int{
 	"day":   7,
-	"week":  8 * 7,
-	"month": 16 * 7,
+	"week":  7,
+	"month": 4 * 7,
 	"year":  52 * 7,
 }
 

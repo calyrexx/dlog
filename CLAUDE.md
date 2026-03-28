@@ -23,21 +23,26 @@ go test ./internal/storage/... -run TestFunctionName
 
 ```
 main.go → command.App
-  command/*.go       CLI handlers (add, today; others are stubs)
+  command/*.go       CLI handlers (add, today, week, search, start/stop, edit, delete, export, stats)
   storage/           Storage interface + SQLite implementation (Squirrel query builder)
-  entities/entry.go  Entry data model
+  entities/entry.go  Entry + StatsResult data models, ValidTags set
   git/git.go         Extract repo name, branch, commit from shell commands
-  render/render.go   Terminal output: tables (lipgloss), contribution graph
+  render/render.go   Terminal output: tables (lipgloss), contribution graph, bar charts, status messages
 ```
 
 **Dependency injection:** `command.App` holds a `storage.Storage` interface, injected at startup in `main.go`. Commands receive the app struct — not the storage directly.
 
 **Entry flow:** `add cmd` → `git.*` (extract context) → `storage.Add()` → SQLite
 
+**Session tracking:** active sessions are entries with `duration_sec = -1`. `StartSession` inserts such a row; `StopSession` calculates elapsed time and updates it to the actual duration. Only one session can be active at a time.
+
+**Timezone handling:** SQLite stores `datetime('now','localtime')` without timezone info. The Go driver parses it as UTC, so `toLocal()` in `sqlite.go` re-interprets scanned times in the local timezone. This must be applied after every row scan (queryEntries, GetByID, ActiveSession).
+
 ## Key Implementation Notes
 
-- Linter is strict: 120-char line limit, max cyclomatic complexity 15, max func length 200 lines / 50 statements, `paralleltest` enforced.
-- Storage methods `StartSession`, `StopSession`, `ActiveSession`, and `Stats` are defined on the interface but not yet implemented in `sqlite.go`.
-- Commands `yesterday`, `last`, `search`, `start`, `stop`, `export`, `stats` are registered but return stubs — implement storage methods first, then the command handler, then the render output.
-- Tag color mapping lives in `render/render.go`; valid tags are: `feat`, `fix`, `note`, `idea`, `docs`.
-- Git functions execute shell commands via `exec.CommandContext` — they return empty strings on failure (non-git directories), not errors.
+- Linter is strict: 120-char line limit, max cyclomatic complexity 15, max func length 200 lines / 50 statements, `paralleltest` enforced. Zero `nolint` directives — restructure code instead.
+- Valid tags are defined in `entities.ValidTags`: `feat`, `fix`, `note`, `idea`, `docs`. Tag validation runs in commands via `validateTag()` in `root.go`. Tag colors live in `render/render.go`.
+- Git functions return empty strings on failure (non-git directories), not errors. Commands work fine outside git repos.
+- `render` depends only on `entities`, never on `storage` — keep this direction clean.
+- Default command (`dlog` with no args) shows today's entries.
+- `ContributionGraph` adapts its width based on the stats period (1/8/16/52 weeks).
