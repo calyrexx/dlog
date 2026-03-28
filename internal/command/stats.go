@@ -9,6 +9,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var graphRangeDays = map[string]int{
+	"day":   7,
+	"week":  8 * 7,
+	"month": 16 * 7,
+	"year":  52 * 7,
+}
+
 func (a *App) newStatsCmd() *cobra.Command {
 	var period string
 
@@ -23,22 +30,21 @@ func (a *App) newStatsCmd() *cobra.Command {
 
 			result, err := a.db.Stats(ctx, period)
 			if err != nil {
-				slog.Error("stats command", "error", err)
-
-				return fmt.Errorf("stats db error: %w", err)
+				return fmt.Errorf("stats: %w", err)
 			}
 
 			render.Stats(result, period)
 
-			// contribution graph: fetch last 26 weeks
 			now := time.Now()
-			graphFrom := now.AddDate(0, 0, -52*7)
 
-			entries, err := a.db.GetByDateRange(ctx, graphFrom, now)
+			days := graphRangeDays[period]
+			if days == 0 {
+				days = graphRangeDays["week"]
+			}
+
+			entries, err := a.db.GetByDateRange(ctx, now.AddDate(0, 0, -days), now)
 			if err != nil {
-				slog.Error("stats command", "graph error", err)
-
-				return fmt.Errorf("graph db error: %w", err)
+				return fmt.Errorf("graph: %w", err)
 			}
 
 			counts := make(map[string]int, len(entries))
@@ -46,7 +52,7 @@ func (a *App) newStatsCmd() *cobra.Command {
 				counts[e.CreatedAt.Format("2006-01-02")]++
 			}
 
-			render.ContributionGraph(counts)
+			render.ContributionGraph(counts, period)
 
 			return nil
 		},

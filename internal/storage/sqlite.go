@@ -15,12 +15,12 @@ import (
 )
 
 var (
-	// ErrNotImplemented is returned by storage methods that are not yet implemented.
-	ErrNotImplemented = errors.New("not implemented")
 	// ErrSessionActive is returned when starting a session while one is already active.
 	ErrSessionActive = errors.New("a session is already active")
-	// ErrNoActiveSession is returned when stopping with no active session.
+	// ErrNoActiveSession is returned when no session is running.
 	ErrNoActiveSession = errors.New("no active session")
+	// ErrNotFound is returned when the requested entry does not exist.
+	ErrNotFound = errors.New("entry not found")
 )
 
 const schema = `
@@ -102,6 +102,89 @@ func (s *SQLiteStorage) Add(ctx context.Context, e entities.Entry) (int64, error
 	return id, nil
 }
 
+func (s *SQLiteStorage) GetByID(ctx context.Context, id int64) (*entities.Entry, error) {
+	query, args, err := s.builder.
+		Select(entryCols...).
+		From("entries").
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	var e entities.Entry
+
+	err = s.db.QueryRowContext(ctx, query, args...).Scan(
+		&e.ID, &e.Text, &e.Tag, &e.Repo, &e.Branch,
+		&e.CommitHash, &e.DurationSec, &e.CreatedAt,
+	)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, ErrNotFound
+	case err != nil:
+		return nil, fmt.Errorf("scan row: %w", err)
+	}
+
+	e.CreatedAt = toLocal(e.CreatedAt)
+
+	return &e, nil
+}
+
+func (s *SQLiteStorage) Update(ctx context.Context, id int64, text, tag string) error {
+	query, args, err := s.builder.
+		Update("entries").
+		Set("text", text).
+		Set("tag", tag).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build query: %w", err)
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("exec query: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+
+	if n == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+func (s *SQLiteStorage) Delete(ctx context.Context, id int64) error {
+	query, args, err := s.builder.
+		Delete("entries").
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build query: %w", err)
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("exec query: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+
+	if n == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 func (s *SQLiteStorage) GetToday(ctx context.Context) ([]entities.Entry, error) {
 	query, args, err := s.builder.
 		Select(entryCols...).
@@ -131,11 +214,15 @@ func (s *SQLiteStorage) GetYesterday(ctx context.Context) ([]entities.Entry, err
 }
 
 func (s *SQLiteStorage) GetLast(ctx context.Context, n int) ([]entities.Entry, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+
 	query, args, err := s.builder.
 		Select(entryCols...).
 		From("entries").
 		OrderBy("created_at DESC").
-		Limit(uint64(n)). //nolint:gosec
+		Limit(uint64(n)).
 		ToSql()
 	if err != nil {
 		return nil, fmt.Errorf("build query: %w", err)
@@ -149,6 +236,20 @@ func (s *SQLiteStorage) Search(ctx context.Context, q string) ([]entities.Entry,
 		Select(entryCols...).
 		From("entries").
 		Where(sq.Like{"text": "%" + q + "%"}).
+		OrderBy("created_at DESC").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	return s.queryEntries(ctx, query, args...)
+}
+
+func (s *SQLiteStorage) SearchByTag(ctx context.Context, tag string) ([]entities.Entry, error) {
+	query, args, err := s.builder.
+		Select(entryCols...).
+		From("entries").
+		Where(sq.Eq{"tag": tag}).
 		OrderBy("created_at DESC").
 		ToSql()
 	if err != nil {
@@ -173,23 +274,23 @@ func (s *SQLiteStorage) GetByDateRange(ctx context.Context, from, to time.Time) 
 	return s.queryEntries(ctx, query, args...)
 }
 
-func (s *SQLiteStorage) StartSession(ctx context.Context, tag, text string) error {
-	active, err := s.ActiveSession(ctx)
-	if err != nil {
-		return fmt.Errorf("check active session: %w", err)
-	}
-
-	if active != nil {
+func (s *SQLiteStorage) StartSession(ctx context.Context, e entities.Entry) error {
+	_, err := s.ActiveSession(ctx)
+	if err == nil {
 		return ErrSessionActive
 	}
 
-	query, args, err := s.builder.
+	if !errors.Is(err, ErrNoActiveSession) {
+		return fmt.Errorf("check active session: %w", err)
+	}
+
+	query, args, buildErr := s.builder.
 		Insert("entries").
-		Columns("text", "tag", "duration_sec").
-		Values(text, tag, -1).
+		Columns("text", "tag", "repo", "branch", "commit_hash", "duration_sec").
+		Values(e.Text, e.Tag, e.Repo, e.Branch, e.CommitHash, -1).
 		ToSql()
-	if err != nil {
-		return fmt.Errorf("build query: %w", err)
+	if buildErr != nil {
+		return fmt.Errorf("build query: %w", buildErr)
 	}
 
 	if _, err = s.db.ExecContext(ctx, query, args...); err != nil {
@@ -199,14 +300,12 @@ func (s *SQLiteStorage) StartSession(ctx context.Context, tag, text string) erro
 	return nil
 }
 
-func (s *SQLiteStorage) StopSession(ctx context.Context, text string) (*entities.Entry, error) {
+func (s *SQLiteStorage) StopSession(
+	ctx context.Context, text, repo, branch, commitHash string,
+) (*entities.Entry, error) {
 	active, err := s.ActiveSession(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("check active session: %w", err)
-	}
-
-	if active == nil {
-		return nil, ErrNoActiveSession
 	}
 
 	elapsed := int(time.Since(active.CreatedAt).Seconds())
@@ -223,12 +322,18 @@ func (s *SQLiteStorage) StopSession(ctx context.Context, text string) (*entities
 		}
 	}
 
-	query, args, err := s.builder.
+	ub := s.builder.
 		Update("entries").
 		Set("duration_sec", elapsed).
-		Set("text", finalText).
-		Where(sq.Eq{"id": active.ID}).
-		ToSql()
+		Set("text", finalText)
+
+	if repo != "" {
+		ub = ub.Set("repo", repo).
+			Set("branch", branch).
+			Set("commit_hash", commitHash)
+	}
+
+	query, args, err := ub.Where(sq.Eq{"id": active.ID}).ToSql()
 	if err != nil {
 		return nil, fmt.Errorf("build query: %w", err)
 	}
@@ -239,6 +344,12 @@ func (s *SQLiteStorage) StopSession(ctx context.Context, text string) (*entities
 
 	active.DurationSec = elapsed
 	active.Text = finalText
+
+	if repo != "" {
+		active.Repo = repo
+		active.Branch = branch
+		active.CommitHash = commitHash
+	}
 
 	return active, nil
 }
@@ -263,15 +374,17 @@ func (s *SQLiteStorage) ActiveSession(ctx context.Context) (*entities.Entry, err
 
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return nil, nil //nolint:nilnil // nil,nil means "no active session"
+		return nil, ErrNoActiveSession
 	case err != nil:
 		return nil, fmt.Errorf("scan row: %w", err)
 	}
 
+	e.CreatedAt = toLocal(e.CreatedAt)
+
 	return &e, nil
 }
 
-func (s *SQLiteStorage) Stats(ctx context.Context, period string) (*StatsResult, error) {
+func (s *SQLiteStorage) Stats(ctx context.Context, period string) (*entities.StatsResult, error) {
 	from, to := periodRange(period)
 
 	query, args, err := s.builder.
@@ -291,7 +404,7 @@ func (s *SQLiteStorage) Stats(ctx context.Context, period string) (*StatsResult,
 		return nil, err
 	}
 
-	result := &StatsResult{
+	result := &entities.StatsResult{
 		TotalEntries: len(entries),
 		ByTag:        make(map[string]int),
 		ByDay:        make(map[string]int),
@@ -355,10 +468,13 @@ func (s *SQLiteStorage) queryEntries(ctx context.Context, query string, args ...
 	for rows.Next() {
 		var e entities.Entry
 		if err := rows.Scan(
-			&e.ID, &e.Text, &e.Tag, &e.Repo, &e.Branch, &e.CommitHash, &e.DurationSec, &e.CreatedAt,
+			&e.ID, &e.Text, &e.Tag, &e.Repo, &e.Branch,
+			&e.CommitHash, &e.DurationSec, &e.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
+
+		e.CreatedAt = toLocal(e.CreatedAt)
 
 		entries = append(entries, e)
 	}
@@ -368,4 +484,19 @@ func (s *SQLiteStorage) queryEntries(ctx context.Context, query string, args ...
 	}
 
 	return entries, nil
+}
+
+// toLocal re-interprets a UTC-parsed time as local time.
+// SQLite stores datetime('now','localtime') without timezone info,
+// so the Go driver parses it as UTC — we fix that here.
+func toLocal(t time.Time) time.Time {
+	if t.Location() == time.UTC {
+		return time.Date(
+			t.Year(), t.Month(), t.Day(),
+			t.Hour(), t.Minute(), t.Second(),
+			t.Nanosecond(), time.Now().Location(),
+		)
+	}
+
+	return t
 }

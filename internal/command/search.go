@@ -2,7 +2,6 @@ package command
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/calyrexx/dlog/internal/entities"
 	"github.com/calyrexx/dlog/internal/render"
@@ -13,21 +12,43 @@ func (a *App) newSearchCmd() *cobra.Command {
 	var tag string
 
 	cmd := &cobra.Command{
-		Use:   "search <query>",
-		Short: "Full-text search across all entries",
-		Args:  cobra.ExactArgs(1),
+		Use:   "search [query]",
+		Short: "Search entries by text and/or tag",
+		Long: "Search entries by text query, tag filter, or both.\n\n" +
+			"Examples:\n  dlog search auth\n  dlog search -t feat\n" +
+			"  dlog search migration -t fix",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			slog.Debug("search command", "query", args[0], "tag", tag)
+			ctx := cmd.Context()
+			query := ""
 
-			entries, err := a.db.Search(cmd.Context(), args[0])
-			if err != nil {
-				slog.Error("search command", "error", err)
-
-				return fmt.Errorf("search db error: %w", err)
+			if len(args) > 0 {
+				query = args[0]
 			}
 
-			if tag != "" {
-				entries = filterByTag(entries, tag)
+			if query == "" && tag == "" {
+				return fmt.Errorf("provide a query, a --tag filter, or both")
+			}
+
+			var (
+				entries []entities.Entry
+				err     error
+			)
+
+			switch {
+			case query != "" && tag != "":
+				entries, err = a.db.Search(ctx, query)
+				if err == nil {
+					entries = filterByTag(entries, tag)
+				}
+			case tag != "":
+				entries, err = a.db.SearchByTag(ctx, tag)
+			default:
+				entries, err = a.db.Search(ctx, query)
+			}
+
+			if err != nil {
+				return fmt.Errorf("search: %w", err)
 			}
 
 			render.Table(entries)
@@ -36,7 +57,7 @@ func (a *App) newSearchCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&tag, "tag", "t", "", "filter results by tag")
+	cmd.Flags().StringVarP(&tag, "tag", "t", "", "filter by tag")
 
 	return cmd
 }

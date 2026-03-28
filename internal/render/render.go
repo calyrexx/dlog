@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/calyrexx/dlog/internal/entities"
-	"github.com/calyrexx/dlog/internal/storage"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
 )
@@ -53,9 +52,12 @@ var (
 	graphDayLabels = [7]string{"Mon", "", "Wed", "", "Fri", "", ""}
 )
 
+const tagCol = 2
+
+// Table renders entries as a styled table with ID, time, tag, text, and git info.
 func Table(entries []entities.Entry) {
 	if len(entries) == 0 {
-		fmt.Println("no entries found")
+		fmt.Println("  no entries found")
 
 		return
 	}
@@ -63,6 +65,7 @@ func Table(entries []entities.Entry) {
 	rows := make([][]string, len(entries))
 	for i, e := range entries {
 		rows[i] = []string{
+			fmt.Sprintf("#%d", e.ID),
 			e.CreatedAt.Format(time.TimeOnly),
 			e.Tag,
 			e.Text,
@@ -71,18 +74,26 @@ func Table(entries []entities.Entry) {
 		}
 	}
 
+	styleID := lipgloss.NewStyle().
+		Foreground(colorSubtle).
+		Padding(0, 1)
+
 	t := table.New().
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(styleBorder).
-		Headers("TIME", "TAG", "TEXT", "REPO", "BRANCH").
+		Headers("ID", "TIME", "TAG", "TEXT", "REPO", "BRANCH").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {
 				return styleHeader
 			}
 
-			if col == 1 { // TAG column
-				tag := rows[row][1]
+			if col == 0 {
+				return styleID
+			}
+
+			if col == tagCol {
+				tag := rows[row][tagCol]
 				if c, ok := tagColors[tag]; ok {
 					return lipgloss.NewStyle().
 						Foreground(c).
@@ -98,21 +109,92 @@ func Table(entries []entities.Entry) {
 	fmt.Println(t.Render())
 }
 
+// ActiveSessionStatus prints info about the currently running session.
+func ActiveSessionStatus(e *entities.Entry) {
+	accent := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(colorMuted)
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+
+	elapsed := int(time.Since(e.CreatedAt).Seconds())
+
+	fmt.Printf("  %s active session\n", accent.Render("▶"))
+	fmt.Printf("  %s %s\n",
+		muted.Render("elapsed:"),
+		green.Render(formatDuration(elapsed)))
+	fmt.Printf("  %s %s\n",
+		muted.Render("started:"),
+		e.CreatedAt.Format("15:04:05 (2006-01-02)"))
+	fmt.Printf("  %s %s\n", muted.Render("tag:    "), tagStyled(e.Tag))
+
+	if e.Text != "" {
+		fmt.Printf("  %s %s\n", muted.Render("text:   "), e.Text)
+	}
+
+	if e.Repo != "" {
+		fmt.Printf("  %s %s/%s\n", muted.Render("git:    "), e.Repo, e.Branch)
+	}
+}
+
+// NoActiveSession prints a message when no session is running.
+func NoActiveSession() {
+	muted := lipgloss.NewStyle().Foreground(colorMuted)
+	fmt.Printf("  %s\n", muted.Render("no active session"))
+}
+
+// EntryDeleted prints a confirmation when an entry is deleted.
+func EntryDeleted(id int64) {
+	accent := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	fmt.Printf("  %s entry #%d deleted\n", accent.Render("✓"), id)
+}
+
+// EntryUpdated prints a confirmation when an entry is updated.
+func EntryUpdated(e *entities.Entry) {
+	accent := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(colorMuted)
+
+	fmt.Printf("  %s entry #%d updated  %s  %s\n",
+		accent.Render("✓"),
+		e.ID,
+		tagStyled(e.Tag),
+		muted.Render(e.Text),
+	)
+}
+
 const (
-	graphWeeks     = 52
 	graphCellWidth = 2
 	graphGap       = 1
 	graphColWidth  = graphCellWidth + graphGap
 	graphLabelW    = 6
 )
 
-var graphCell = strings.Repeat("█", graphCellWidth)
+var (
+	graphCell = strings.Repeat("█", graphCellWidth)
+
+	periodWeeks = map[string]int{
+		"day":   1,
+		"week":  8,
+		"month": 16,
+		"year":  52,
+	}
+
+	periodTitles = map[string]string{
+		"day":   "today",
+		"week":  "the last 2 months",
+		"month": "the last 4 months",
+		"year":  "the last year",
+	}
+)
 
 // ContributionGraph renders a GitHub-style activity heatmap from a day->count map.
-func ContributionGraph(counts map[string]int) {
+func ContributionGraph(counts map[string]int, period string) {
+	weeks := periodWeeks[period]
+	if weeks == 0 {
+		weeks = periodWeeks["week"]
+	}
+
 	today := time.Now()
 	todayWd := int(today.Weekday()+6) % 7
-	start := today.AddDate(0, 0, -(todayWd + (graphWeeks-1)*7 + 5))
+	start := today.AddDate(0, 0, -(todayWd + (weeks-1)*7 + 5))
 
 	total := 0
 	for _, v := range counts {
@@ -122,20 +204,25 @@ func ContributionGraph(counts map[string]int) {
 	muted := lipgloss.NewStyle().Foreground(colorMuted)
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
 
-	fmt.Println()
-	fmt.Printf("  %s in the last year\n\n",
-		title.Render(fmt.Sprintf("%d contributions", total)))
+	label := periodTitles[period]
+	if label == "" {
+		label = periodTitles["week"]
+	}
 
-	graphMonthLabels(start, muted)
-	graphRows(start, today, counts, muted)
-	graphLegend(muted)
+	fmt.Println()
+	fmt.Printf("  %s in %s\n\n",
+		title.Render(fmt.Sprintf("%d notes", total)), label)
+
+	graphMonthLabels(start, weeks, muted)
+	graphRows(start, today, weeks, counts, muted)
+	graphLegend(weeks, muted)
 }
 
-func graphMonthLabels(start time.Time, muted lipgloss.Style) {
-	labels := make([]string, graphWeeks)
+func graphMonthLabels(start time.Time, weeks int, muted lipgloss.Style) {
+	labels := make([]string, weeks)
 	lastMonth := -1
 
-	for w := range graphWeeks {
+	for w := range weeks {
 		m := int(start.AddDate(0, 0, w*7).Month())
 		if m != lastMonth {
 			labels[w] = start.AddDate(0, 0, w*7).Format("Jan")
@@ -147,20 +234,16 @@ func graphMonthLabels(start time.Time, muted lipgloss.Style) {
 
 	line.WriteString(strings.Repeat(" ", graphLabelW))
 
-	for w := range graphWeeks {
-		if labels[w] != "" {
-			// skip label if next month label is too close (< 2 cols apart)
-			hasSpace := w+1 >= graphWeeks || labels[w+1] == "" //nolint:gosec // guarded
-			if hasSpace {
-				line.WriteString(labels[w])
+	for w := range weeks {
+		if labels[w] != "" && hasLabelSpace(labels, w) {
+			line.WriteString(labels[w])
 
-				target := graphLabelW + (w+1)*graphColWidth
-				for line.Len() < target {
-					line.WriteByte(' ')
-				}
-
-				continue
+			target := graphLabelW + (w+1)*graphColWidth
+			for line.Len() < target {
+				line.WriteByte(' ')
 			}
+
+			continue
 		}
 
 		target := graphLabelW + (w+1)*graphColWidth
@@ -172,7 +255,7 @@ func graphMonthLabels(start time.Time, muted lipgloss.Style) {
 	fmt.Println(muted.Render(line.String()))
 }
 
-func graphRows(start, today time.Time, counts map[string]int, muted lipgloss.Style) {
+func graphRows(start, today time.Time, weeks int, counts map[string]int, muted lipgloss.Style) {
 	for row := range 7 {
 		label := graphDayLabels[row]
 		if label == "" {
@@ -181,7 +264,7 @@ func graphRows(start, today time.Time, counts map[string]int, muted lipgloss.Sty
 
 		fmt.Print(muted.Render(fmt.Sprintf("  %s ", label)))
 
-		for w := range graphWeeks {
+		for w := range weeks {
 			day := start.AddDate(0, 0, w*7+row)
 			if day.After(today) {
 				fmt.Print(strings.Repeat(" ", graphColWidth))
@@ -198,10 +281,10 @@ func graphRows(start, today time.Time, counts map[string]int, muted lipgloss.Sty
 	}
 }
 
-func graphLegend(muted lipgloss.Style) {
+func graphLegend(weeks int, muted lipgloss.Style) {
 	fmt.Println()
 
-	gridWidth := graphLabelW + graphWeeks*graphColWidth
+	gridWidth := graphLabelW + weeks*graphColWidth
 
 	var buf strings.Builder
 
@@ -279,7 +362,7 @@ func BarChart(data map[string]int) {
 }
 
 // Stats prints formatted statistics output.
-func Stats(result *storage.StatsResult, period string) {
+func Stats(result *entities.StatsResult, period string) {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(colorAccent).
@@ -386,6 +469,15 @@ func formatDuration(seconds int) string {
 	default:
 		return fmt.Sprintf("%ds", seconds)
 	}
+}
+
+func hasLabelSpace(labels []string, w int) bool {
+	next := w + 1
+	if next >= len(labels) {
+		return true
+	}
+
+	return labels[next] == ""
 }
 
 // level maps an entry count to a palette index.

@@ -2,7 +2,6 @@ package command
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/calyrexx/dlog/internal/entities"
@@ -12,67 +11,39 @@ import (
 )
 
 func (a *App) newAddCmd() *cobra.Command {
-	var (
-		tag      string
-		noteText string
-	)
+	var tag string
 
 	cmd := &cobra.Command{
 		Use:   "add <text>",
 		Short: "Add a new diary entry",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateTag(tag); err != nil {
+				return err
+			}
+
 			ctx := cmd.Context()
-
-			slog.Debug("add command", "args", args)
-
-			noteText = strings.Join(args, " ")
-
-			repo, err := git.RepoName(ctx)
-			if err != nil {
-				slog.Error("add command", "error", err)
-
-				return fmt.Errorf("failed to get repo: %w", err)
-			}
-
-			branch, err := git.Branch(ctx)
-			if err != nil {
-				slog.Error("add command", "error", err)
-
-				return fmt.Errorf("failed to get branch: %w", err)
-			}
-
-			commitHash, err := git.CommitHash(ctx)
-			if err != nil {
-				slog.Error("add command", "error", err)
-
-				return fmt.Errorf("failed to get commit hash: %w", err)
-			}
+			text := strings.Join(args, " ")
 
 			id, err := a.db.Add(ctx, entities.Entry{
-				Text:       noteText,
+				Text:       text,
 				Tag:        tag,
-				Repo:       repo,
-				Branch:     branch,
-				CommitHash: commitHash,
+				Repo:       git.RepoName(ctx),
+				Branch:     git.Branch(ctx),
+				CommitHash: git.CommitHash(ctx),
 			})
 			if err != nil {
-				slog.Error("add command", "error", err)
-
-				return fmt.Errorf("add entry db error: %w", err)
+				return fmt.Errorf("add entry: %w", err)
 			}
 
-			slog.Debug("add command", slog.Group("note",
-				"id", id, "text", noteText, "tag", tag,
-			))
-
-			render.EntryAdded(id, tag, noteText)
+			render.EntryAdded(id, tag, text)
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&tag, "tag", "t", "note", "entry tag (note, fix, feat, idea, …)")
+	cmd.Flags().StringVarP(&tag, "tag", "t", "note",
+		fmt.Sprintf("entry tag (%s)", ValidTagList))
 
 	return cmd
 }

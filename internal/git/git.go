@@ -8,38 +8,38 @@ import (
 	"strings"
 )
 
-// Branch returns the name of the currently checked-out git branch.
-func Branch(ctx context.Context) (string, error) {
+// Branch returns the currently checked-out git branch, or "" outside a git repo.
+func Branch(ctx context.Context) string {
 	out, err := run(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("get branch: %w", err)
+		return ""
 	}
 
-	return out, nil
+	return out
 }
 
-// CommitHash returns the short hash of the latest commit on HEAD.
-func CommitHash(ctx context.Context) (string, error) {
+// CommitHash returns the short hash of HEAD, or "" outside a git repo.
+func CommitHash(ctx context.Context) string {
 	out, err := run(ctx, "git", "rev-parse", "--short", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("get commit hash: %w", err)
+		return ""
 	}
 
-	return out, nil
+	return out
 }
 
-// RepoName returns the repository name (e.g. "dlog") derived from the remote
-// origin URL. Handles both HTTPS and SSH remote formats:
+// RepoName returns the repository name derived from the remote origin URL,
+// or "" if unavailable. Handles both HTTPS and SSH remote formats:
 //
-//	https://github.com/user/repo.git
-//	git@github.com:user/repo.git
-func RepoName(ctx context.Context) (string, error) {
+//	https://github.com/user/repo.git → "repo"
+//	git@github.com:user/repo.git    → "repo"
+func RepoName(ctx context.Context) string {
 	out, err := run(ctx, "git", "remote", "get-url", "origin")
 	if err != nil {
-		return "", fmt.Errorf("get remote url: %w", err)
+		return ""
 	}
 
-	// SSH: git@github.com:user/repo.git → normalize colon to slash
+	// SSH: git@github.com:user/repo.git → normalize colon to slash.
 	if strings.HasPrefix(out, "git@") {
 		parts := strings.SplitN(out, ":", 2)
 		if len(parts) == 2 {
@@ -50,13 +50,13 @@ func RepoName(ctx context.Context) (string, error) {
 	name := path.Base(out)
 	name = strings.TrimSuffix(name, ".git")
 
-	return name, nil
+	return name
 }
 
 func run(ctx context.Context, name string, args ...string) (string, error) {
 	out, err := exec.CommandContext(ctx, name, args...).Output()
 	if err != nil {
-		return "", fmt.Errorf("exec command %s: %w", name, err)
+		return "", fmt.Errorf("exec %s: %w", name, err)
 	}
 
 	return strings.TrimSpace(string(out)), nil

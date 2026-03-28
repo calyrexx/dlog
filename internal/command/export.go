@@ -185,9 +185,11 @@ func exportCSV(w io.Writer, entries []entities.Entry) error {
 
 func exportMarkdown(w io.Writer, entries []entities.Entry) error {
 	if len(entries) == 0 {
-		_, err := fmt.Fprintln(w, "No entries found.")
+		if _, err := fmt.Fprintln(w, "No entries found."); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
 
-		return err //nolint:wrapcheck
+		return nil
 	}
 
 	currentDate := ""
