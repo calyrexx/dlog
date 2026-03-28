@@ -20,6 +20,7 @@ func (a *App) newExportCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("not implemented yet")
+
 			return nil
 		},
 	}

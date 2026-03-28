@@ -15,6 +15,7 @@ func (a *App) newStartCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("not implemented yet")
+
 			return nil
 		},
 	}

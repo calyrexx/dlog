@@ -26,3 +26,7 @@ go.work.sum
 
 # Editor/IDE
  .idea/
+
+## Makefile outputs
+lint.log
+test.log

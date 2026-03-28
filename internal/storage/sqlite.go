@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/calyrexx/dlog/internal/entities"
 	_ "modernc.org/sqlite"
 )
@@ -25,7 +26,8 @@ CREATE TABLE IF NOT EXISTS entries (
 
 // SQLiteStorage is the SQLite-backed implementation of Storage.
 type SQLiteStorage struct {
-	db *sql.DB
+	db      *sql.DB
+	builder sq.StatementBuilderType
 }
 
 // New opens (or creates) ~/.dlog/dlog.db and applies the schema.
@@ -36,6 +38,7 @@ func New() (*SQLiteStorage, error) {
 	}
 
 	dbPath := filepath.Join(dir, "dlog.db")
+
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
@@ -43,20 +46,103 @@ func New() (*SQLiteStorage, error) {
 
 	if _, err = db.Exec(schema); err != nil {
 		_ = db.Close()
+
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 
-	return &SQLiteStorage{db: db}, nil
+	return &SQLiteStorage{
+		db:      db,
+		builder: sq.StatementBuilder.PlaceholderFormat(sq.Question),
+	}, nil
 }
 
-func (s *SQLiteStorage) Add(_ entities.Entry) (int64, error) {
-	// TODO: INSERT INTO entries and return lastInsertId
-	return 0, nil
+func (s *SQLiteStorage) Add(e entities.Entry) (int64, error) {
+	query, args, err := s.builder.
+		Insert("entries").
+		Columns(
+			"text",
+			"tag",
+			"repo",
+			"branch",
+			"commit_hash",
+			"duration_sec",
+		).
+		Values(
+			e.Text,
+			e.Tag,
+			e.Repo,
+			e.Branch,
+			e.CommitHash,
+			e.DurationSec,
+		).ToSql()
+	if err != nil {
+		return 0, fmt.Errorf("build query: %w", err)
+	}
+
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("exec query: %w", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("get last insert id: %w", err)
+	}
+
+	return id, nil
 }
 
 func (s *SQLiteStorage) GetToday() ([]entities.Entry, error) {
-	// TODO: SELECT WHERE date(created_at) = date('now', 'localtime')
-	return nil, nil
+	query, args, err := s.builder.
+		Select(
+			"id",
+			"text",
+			"tag",
+			"repo",
+			"branch",
+			"commit_hash",
+			"duration_sec",
+			"created_at",
+		).
+		From("entries").
+		Where("date(created_at) = date('now', 'localtime')").
+		OrderBy("created_at DESC").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("exec query: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []entities.Entry
+
+	for rows.Next() {
+		var e entities.Entry
+		if err := rows.Scan(
+			&e.ID,
+			&e.Text,
+			&e.Tag,
+			&e.Repo,
+			&e.Branch,
+			&e.CommitHash,
+			&e.DurationSec,
+			&e.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+
+		entries = append(entries, e)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate rows: %w", err)
+	}
+
+	return entries, nil
 }
 
 func (s *SQLiteStorage) GetYesterday() ([]entities.Entry, error) {
@@ -101,5 +187,9 @@ func (s *SQLiteStorage) Stats(_ string) (*StatsResult, error) {
 }
 
 func (s *SQLiteStorage) Close() error {
-	return s.db.Close()
+	if err := s.db.Close(); err != nil {
+		return fmt.Errorf("close database: %w", err)
+	}
+
+	return nil
 }

@@ -15,6 +15,7 @@ func (a *App) newStatsCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("not implemented yet")
+
 			return nil
 		},
 	}

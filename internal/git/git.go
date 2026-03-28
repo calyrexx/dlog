@@ -1,23 +1,54 @@
 package git
 
-// Branch returns the name of the currently checked-out git branch.
-// Runs: git rev-parse --abbrev-ref HEAD
+import (
+	"fmt"
+	"os/exec"
+	"path"
+	"strings"
+)
+
 func Branch() (string, error) {
-	// TODO: exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	return "", nil
+	out, err := run("git", "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("get branch: %w", err)
+	}
+
+	return out, nil
 }
 
-// CommitHash returns the short hash of the latest commit on HEAD.
-// Runs: git rev-parse --short HEAD
 func CommitHash() (string, error) {
-	// TODO: exec.Command("git", "rev-parse", "--short", "HEAD")
-	return "", nil
+	out, err := run("git", "rev-parse", "--short", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("get commit hash: %w", err)
+	}
+
+	return out, nil
 }
 
-// RepoName returns the repository name derived from the remote origin URL
-// or, as a fallback, from the base name of the working directory.
 func RepoName() (string, error) {
-	// TODO: exec.Command("git", "remote", "get-url", "origin"), then parse URL
-	// Fallback: filepath.Base(workdir)
-	return "", nil
+	out, err := run("git", "remote", "get-url", "origin")
+	if err != nil {
+		return "", fmt.Errorf("get remote url: %w", err)
+	}
+
+	if strings.HasPrefix(out, "git@") {
+		parts := strings.SplitN(out, ":", 2)
+		if len(parts) == 2 {
+			out = parts[1]
+		}
+	}
+
+	name := path.Base(out)
+	name = strings.TrimSuffix(name, ".git")
+
+	return name, nil
+}
+
+func run(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).Output()
+	if err != nil {
+		return "", fmt.Errorf("exec command %s: %w", name, err)
+	}
+
+	return strings.TrimSpace(string(out)), nil
 }

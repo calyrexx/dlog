@@ -15,6 +15,7 @@ func (a *App) newSearchCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("not implemented yet")
+
 			return nil
 		},
 	}
