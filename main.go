@@ -31,7 +31,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	db, err := storage.New(ctx)
+	db, err := storage.New()
 	if err != nil {
 		return fmt.Errorf("open storage: %w", err)
 	}

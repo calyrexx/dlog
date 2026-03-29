@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
 	"os"
@@ -11,8 +12,12 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/calyrexx/dlog/internal/entities"
+	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 var (
 	// ErrSessionActive is returned when starting a session while one is already active.
@@ -22,18 +27,6 @@ var (
 	// ErrNotFound is returned when the requested entry does not exist.
 	ErrNotFound = errors.New("entry not found")
 )
-
-const schema = `
-CREATE TABLE IF NOT EXISTS entries (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    text         TEXT NOT NULL,
-    tag          TEXT NOT NULL DEFAULT 'note',
-    repo         TEXT,
-    branch       TEXT,
-    commit_hash  TEXT,
-    duration_sec INTEGER,
-    created_at   DATETIME NOT NULL DEFAULT (datetime('now', 'localtime'))
-);`
 
 var entryCols = []string{
 	"id", "text", "tag",
@@ -48,7 +41,7 @@ type SQLiteStorage struct {
 }
 
 // New opens (or creates) ~/.dlog/dlog.db and applies the schema.
-func New(ctx context.Context) (*SQLiteStorage, error) {
+func New() (*SQLiteStorage, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("get home dir: %w", err)
@@ -66,10 +59,10 @@ func New(ctx context.Context) (*SQLiteStorage, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	if _, err = db.ExecContext(ctx, schema); err != nil {
+	if err = runMigrations(db); err != nil {
 		_ = db.Close()
 
-		return nil, fmt.Errorf("init schema: %w", err)
+		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
 	return &SQLiteStorage{
@@ -599,6 +592,20 @@ func periodStart(ref time.Time, period string) time.Time {
 
 		return time.Date(y, m, d, 0, 0, 0, 0, ref.Location())
 	}
+}
+
+func runMigrations(db *sql.DB) error {
+	goose.SetBaseFS(migrationsFS)
+
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return fmt.Errorf("set dialect: %w", err)
+	}
+
+	if err := goose.Up(db, "migrations"); err != nil {
+		return fmt.Errorf("apply migrations: %w", err)
+	}
+
+	return nil
 }
 
 // queryEntries executes a SELECT and scans the result into []Entry.
