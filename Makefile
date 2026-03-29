@@ -1,4 +1,4 @@
-.PHONY: build install lint test stage
+.PHONY: build install lint test stage m-new
 MAKEFLAGS += --no-print-directory
 GIT_BRANCH := $(shell git branch --show-current)
 GIT_REMOTE := git@github.com:calyrexx/dlog.git
@@ -11,6 +11,9 @@ CHECK_EMOJI := ✅
 ERROR_EMOJI := ❌
 INFO_EMOJI  := ℹ️
 ARROW_UP    := ⬆️
+
+n ?= migration
+MIGRATIONS_PATH := internal/storage/migrations
 
 build:
 	@echo "$(INFO_EMOJI) Building $(BINARY)..."
@@ -47,3 +50,8 @@ stage:
 	@git commit -m "$(m)"
 	@git push $(GIT_REMOTE) $(GIT_BRANCH)
 	@echo "$(CHECK_EMOJI) Changes pushed to $(GIT_BRANCH)!"
+
+m-new:
+	@echo "$(INFO_EMOJI) Creating new migration '$(n)'..."
+	@goose -dir $(MIGRATIONS_PATH) create $(n) sql
+	@echo "$(CHECK_EMOJI) Migration files created!"
