@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/calyrexx/dlog/internal/entities"
@@ -22,8 +23,14 @@ var ValidTagList = func() string {
 	return strings.Join(tags, ", ")
 }()
 
-// Version is set at build time via ldflags.
-var Version = "dev"
+// Version is set at build time via ldflags; falls back to the module version from build info.
+var Version = func() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+
+	return "dev"
+}()
 
 type App struct {
 	db storage.Storage
