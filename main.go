@@ -16,7 +16,7 @@ import (
 func main() {
 	logger := slog.New(zeroslog.New(
 		zeroslog.WithOutput(os.Stderr),
-		zeroslog.WithMinLevel(slog.LevelDebug),
+		zeroslog.WithMinLevel(slog.LevelError),
 		zeroslog.WithColors(),
 	))
 	slog.SetDefault(logger)
@@ -31,7 +31,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	db, err := storage.New()
+	db, err := storage.New(ctx)
 	if err != nil {
 		return fmt.Errorf("open storage: %w", err)
 	}

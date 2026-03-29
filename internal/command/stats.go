@@ -52,7 +52,15 @@ func (a *App) newStatsCmd() *cobra.Command {
 			}
 
 			from, to := storage.PeriodRange(period)
-			render.Stats(result, period, cur, best, prev, from, to)
+			render.Stats(render.StatsArgs{
+				Result:        result,
+				Period:        period,
+				CurrentStreak: cur,
+				LongestStreak: best,
+				Prev:          prev,
+				From:          from,
+				To:            to,
+			})
 
 			entries, err := a.db.GetByDateRange(ctx, from, to)
 			if err != nil {

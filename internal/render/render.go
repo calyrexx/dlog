@@ -364,14 +364,18 @@ type PrevPeriod struct {
 	Duration int // seconds
 }
 
+type StatsArgs struct {
+	Result        *entities.StatsResult
+	Period        string
+	CurrentStreak int
+	LongestStreak int
+	Prev          *PrevPeriod
+	From          time.Time
+	To            time.Time
+}
+
 // Stats prints formatted statistics output.
-func Stats(
-	result *entities.StatsResult,
-	period string,
-	currentStreak, longestStreak int,
-	prev *PrevPeriod,
-	from, to time.Time,
-) {
+func Stats(args StatsArgs) {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(colorAccent).
@@ -388,43 +392,43 @@ func Stats(
 
 	labelStyle := lipgloss.NewStyle().Foreground(colorMuted).Width(12).Align(lipgloss.Right)
 
-	rangeStr := formatRange(from, to)
+	rangeStr := formatRange(args.From, args.To)
 	fmt.Println(titleStyle.Render(
-		fmt.Sprintf("  Activity — %s  %s", period, muted.Render(rangeStr)),
+		fmt.Sprintf("  Activity — %s  %s", args.Period, muted.Render(rangeStr)),
 	))
 
 	fmt.Printf("  %s  %s%s\n",
 		labelStyle.Render("Entries"),
-		valueStyle.Render(fmt.Sprintf("%d", result.TotalEntries)),
-		deltaStr(result.TotalEntries, prev.Entries, ""),
+		valueStyle.Render(fmt.Sprintf("%d", args.Result.TotalEntries)),
+		deltaStr(args.Result.TotalEntries, args.Prev.Entries, ""),
 	)
 
-	if result.TotalDuration > 0 {
+	if args.Result.TotalDuration > 0 {
 		fmt.Printf("  %s  %s%s\n",
 			labelStyle.Render("Duration"),
-			valueStyle.Render(formatDuration(result.TotalDuration)),
-			deltaStr(result.TotalDuration, prev.Duration, "duration"),
+			valueStyle.Render(formatDuration(args.Result.TotalDuration)),
+			deltaStr(args.Result.TotalDuration, args.Prev.Duration, "duration"),
 		)
 	}
 
-	activeDays := len(result.ByDay)
+	activeDays := len(args.Result.ByDay)
 	fmt.Printf("  %s  %s\n",
 		labelStyle.Render("Active days"),
 		valueStyle.Render(fmt.Sprintf("%d", activeDays)),
 	)
 
 	if activeDays > 0 {
-		avg := float64(result.TotalEntries) / float64(activeDays)
+		avg := float64(args.Result.TotalEntries) / float64(activeDays)
 		fmt.Printf("  %s  %s\n",
 			labelStyle.Render("Avg/day"),
 			valueStyle.Render(fmt.Sprintf("%.1f", avg)),
 		)
 	}
 
-	if longestStreak > 0 {
-		streakText := fmt.Sprintf("%d days", currentStreak)
-		if longestStreak > currentStreak {
-			streakText += fmt.Sprintf(" (best: %d)", longestStreak)
+	if args.LongestStreak > 0 {
+		streakText := fmt.Sprintf("%d days", args.CurrentStreak)
+		if args.LongestStreak > args.CurrentStreak {
+			streakText += fmt.Sprintf(" (best: %d)", args.LongestStreak)
 		}
 
 		fmt.Printf("  %s  %s\n",
@@ -433,7 +437,7 @@ func Stats(
 		)
 	}
 
-	if best, count := mostActiveDay(result.ByDay); best != "" {
+	if best, count := mostActiveDay(args.Result.ByDay); best != "" {
 		t, parseErr := time.Parse("2006-01-02", best)
 
 		label := best
@@ -448,16 +452,16 @@ func Stats(
 		)
 	}
 
-	if len(result.ByTag) > 0 {
+	if len(args.Result.ByTag) > 0 {
 		fmt.Println()
 		fmt.Println(headerStyle.Render("  By tag"))
-		tagBarChart(result.ByTag, result.TotalEntries)
+		tagBarChart(args.Result.ByTag, args.Result.TotalEntries)
 		fmt.Println()
 	}
 
-	if len(result.ByRepo) > 0 {
+	if len(args.Result.ByRepo) > 0 {
 		fmt.Println(headerStyle.Render("  By project"))
-		projectBranches(result.ByRepo, result.RepoBranches)
+		projectBranches(args.Result.ByRepo, args.Result.RepoBranches)
 	}
 }
 

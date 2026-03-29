@@ -5,11 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-make build     # Build binary to ./dlog
+make build     # Build binary to ./dlog  (injects version via ldflags)
 make install   # Install binary to $GOPATH/bin
 make test      # Run tests: go test ./...
 make lint      # Run golangci-lint
 make checks    # Run test + lint together
+make stage m="commit message"  # Run checks, commit, and push current branch
 ```
 
 Run a single test:
@@ -23,7 +24,7 @@ go test ./internal/storage/... -run TestFunctionName
 
 ```
 main.go → command.App
-  command/*.go       CLI handlers (add, today, week, search, start/stop, edit, delete, export, stats)
+  command/*.go       CLI handlers (add, today, yesterday, last, week, search, start/stop, status, edit, delete, export, stats)
   storage/           Storage interface + SQLite implementation (Squirrel query builder)
   entities/entry.go  Entry + StatsResult data models, ValidTags set
   git/git.go         Extract repo name, branch, commit from shell commands
@@ -46,3 +47,4 @@ main.go → command.App
 - `render` depends only on `entities`, never on `storage` — keep this direction clean.
 - Default command (`dlog` with no args) shows today's entries.
 - `ContributionGraph` adapts its width based on the stats period (1/8/16/52 weeks).
+- Valid stats periods: `day`, `week` (default), `month`, `year`. `PeriodRange` / `PrevPeriodRange` in `sqlite.go` compute the time boundaries used by both `Stats` and the comparison panel.

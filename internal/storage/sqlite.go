@@ -42,14 +42,13 @@ var entryCols = []string{
 	"COALESCE(duration_sec, 0)", "created_at",
 }
 
-// SQLiteStorage is the SQLite-backed implementation of Storage.
 type SQLiteStorage struct {
 	db      *sql.DB
 	builder sq.StatementBuilderType
 }
 
 // New opens (or creates) ~/.dlog/dlog.db and applies the schema.
-func New() (*SQLiteStorage, error) {
+func New(ctx context.Context) (*SQLiteStorage, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("get home dir: %w", err)
@@ -67,7 +66,7 @@ func New() (*SQLiteStorage, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	if _, err = db.ExecContext(context.Background(), schema); err != nil {
+	if _, err = db.ExecContext(ctx, schema); err != nil {
 		_ = db.Close()
 
 		return nil, fmt.Errorf("init schema: %w", err)
@@ -82,8 +81,22 @@ func New() (*SQLiteStorage, error) {
 func (s *SQLiteStorage) Add(ctx context.Context, e entities.Entry) (int64, error) {
 	query, args, err := s.builder.
 		Insert("entries").
-		Columns("text", "tag", "repo", "branch", "commit_hash", "duration_sec").
-		Values(e.Text, e.Tag, e.Repo, e.Branch, e.CommitHash, e.DurationSec).
+		Columns(
+			"text",
+			"tag",
+			"repo",
+			"branch",
+			"commit_hash",
+			"duration_sec",
+		).
+		Values(
+			e.Text,
+			e.Tag,
+			e.Repo,
+			e.Branch,
+			e.CommitHash,
+			e.DurationSec,
+		).
 		ToSql()
 	if err != nil {
 		return 0, fmt.Errorf("build query: %w", err)
@@ -115,8 +128,14 @@ func (s *SQLiteStorage) GetByID(ctx context.Context, id int64) (*entities.Entry,
 	var e entities.Entry
 
 	err = s.db.QueryRowContext(ctx, query, args...).Scan(
-		&e.ID, &e.Text, &e.Tag, &e.Repo, &e.Branch,
-		&e.CommitHash, &e.DurationSec, &e.CreatedAt,
+		&e.ID,
+		&e.Text,
+		&e.Tag,
+		&e.Repo,
+		&e.Branch,
+		&e.CommitHash,
+		&e.DurationSec,
+		&e.CreatedAt,
 	)
 
 	switch {
@@ -285,8 +304,22 @@ func (s *SQLiteStorage) StartSession(ctx context.Context, e entities.Entry) erro
 
 	query, args, buildErr := s.builder.
 		Insert("entries").
-		Columns("text", "tag", "repo", "branch", "commit_hash", "duration_sec").
-		Values(e.Text, e.Tag, e.Repo, e.Branch, e.CommitHash, -1).
+		Columns(
+			"text",
+			"tag",
+			"repo",
+			"branch",
+			"commit_hash",
+			"duration_sec",
+		).
+		Values(
+			e.Text,
+			e.Tag,
+			e.Repo,
+			e.Branch,
+			e.CommitHash,
+			-1,
+		).
 		ToSql()
 	if buildErr != nil {
 		return fmt.Errorf("build query: %w", buildErr)
@@ -367,8 +400,14 @@ func (s *SQLiteStorage) ActiveSession(ctx context.Context) (*entities.Entry, err
 	var e entities.Entry
 
 	err = s.db.QueryRowContext(ctx, query, args...).Scan(
-		&e.ID, &e.Text, &e.Tag, &e.Repo, &e.Branch,
-		&e.CommitHash, &e.DurationSec, &e.CreatedAt,
+		&e.ID,
+		&e.Text,
+		&e.Tag,
+		&e.Repo,
+		&e.Branch,
+		&e.CommitHash,
+		&e.DurationSec,
+		&e.CreatedAt,
 	)
 
 	switch {
@@ -451,30 +490,18 @@ func PrevPeriodRange(period string) (time.Time, time.Time) {
 	return from, to
 }
 
-func periodStart(ref time.Time, period string) time.Time {
-	switch period {
-	case "day":
-		y, m, d := ref.Date()
-
-		return time.Date(y, m, d, 0, 0, 0, 0, ref.Location())
-	case "month":
-		y, m, _ := ref.Date()
-
-		return time.Date(y, m, 1, 0, 0, 0, 0, ref.Location())
-	case "year":
-		return time.Date(ref.Year(), 1, 1, 0, 0, 0, 0, ref.Location())
-	default: // "week"
-		offset := int(ref.Weekday()+6) % 7
-		y, m, d := ref.AddDate(0, 0, -offset).Date()
-
-		return time.Date(y, m, d, 0, 0, 0, 0, ref.Location())
-	}
-}
-
 func (s *SQLiteStorage) Streaks(ctx context.Context) (current, longest int, err error) {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT DISTINCT date(created_at) AS d FROM entries WHERE duration_sec != -1 ORDER BY d DESC",
-	)
+	query, args, err := s.builder.
+		Select("DISTINCT date(created_at) AS d").
+		From("entries").
+		Where(sq.NotEq{"duration_sec": -1}).
+		OrderBy("d DESC").
+		ToSql()
+	if err != nil {
+		return 0, 0, fmt.Errorf("build query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return 0, 0, fmt.Errorf("query streaks: %w", err)
 	}
@@ -554,6 +581,26 @@ func (s *SQLiteStorage) Close() error {
 	return nil
 }
 
+func periodStart(ref time.Time, period string) time.Time {
+	switch period {
+	case "day":
+		y, m, d := ref.Date()
+
+		return time.Date(y, m, d, 0, 0, 0, 0, ref.Location())
+	case "month":
+		y, m, _ := ref.Date()
+
+		return time.Date(y, m, 1, 0, 0, 0, 0, ref.Location())
+	case "year":
+		return time.Date(ref.Year(), 1, 1, 0, 0, 0, 0, ref.Location())
+	default: // "week"
+		offset := int(ref.Weekday()+6) % 7
+		y, m, d := ref.AddDate(0, 0, -offset).Date()
+
+		return time.Date(y, m, d, 0, 0, 0, 0, ref.Location())
+	}
+}
+
 // queryEntries executes a SELECT and scans the result into []Entry.
 func (s *SQLiteStorage) queryEntries(ctx context.Context, query string, args ...any) ([]entities.Entry, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -567,8 +614,14 @@ func (s *SQLiteStorage) queryEntries(ctx context.Context, query string, args ...
 	for rows.Next() {
 		var e entities.Entry
 		if err := rows.Scan(
-			&e.ID, &e.Text, &e.Tag, &e.Repo, &e.Branch,
-			&e.CommitHash, &e.DurationSec, &e.CreatedAt,
+			&e.ID,
+			&e.Text,
+			&e.Tag,
+			&e.Repo,
+			&e.Branch,
+			&e.CommitHash,
+			&e.DurationSec,
+			&e.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
